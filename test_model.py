@@ -34,24 +34,63 @@ def test_model_training():
 def test_model_inference_speed():
     # Test 5: Check inference speed
     model = MNISTModel()
-    model.eval()
     
-    # Generate batch of test data
-    test_batch = torch.randn(64, 1, 28, 28)
+    # Use GPU if available
+    if torch.cuda.is_available():
+        model = model.to_gpu()  # Use our optimized GPU method
+        print("Testing inference speed on GPU")
+    else:
+        model.eval()
+        print("Testing inference speed on CPU")
     
-    # Warm-up
-    with torch.no_grad():
-        _ = model(test_batch)
-    
-    # Measure inference time
-    start_time = time.time()
-    with torch.no_grad():
-        for _ in range(10):  # Run multiple times for more accurate measurement
+    # Use CUDA events for more accurate GPU timing
+    if torch.cuda.is_available():
+        # Generate batch of test data on GPU
+        test_batch = torch.randn(64, 1, 28, 28, device='cuda')
+        
+        # Warm-up
+        with torch.no_grad():
+            for _ in range(10):
+                _ = model(test_batch)
+        
+        # Synchronize before timing
+        torch.cuda.synchronize()
+        
+        # Measure inference time with CUDA events
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        
+        start_event.record()
+        with torch.no_grad():
+            for _ in range(100):  # More iterations for GPU
+                _ = model(test_batch)
+        end_event.record()
+        
+        # Synchronize after timing
+        torch.cuda.synchronize()
+        
+        # Calculate time in milliseconds
+        elapsed_time = start_event.elapsed_time(end_event)
+        avg_time_per_batch = elapsed_time / 100
+        avg_time_per_image = avg_time_per_batch / 64
+    else:
+        # Original CPU timing code
+        # Generate batch of test data
+        test_batch = torch.randn(64, 1, 28, 28)
+        
+        # Warm-up
+        with torch.no_grad():
             _ = model(test_batch)
-    end_time = time.time()
-    
-    avg_time_per_batch = (end_time - start_time) / 10
-    avg_time_per_image = avg_time_per_batch / 64
+        
+        # Measure inference time
+        start_time = time.time()
+        with torch.no_grad():
+            for _ in range(10):  # Run multiple times for more accurate measurement
+                _ = model(test_batch)
+        end_time = time.time()
+        
+        avg_time_per_batch = (end_time - start_time) / 10
+        avg_time_per_image = avg_time_per_batch / 64
     
     print(f"Average inference time per image: {avg_time_per_image*1000:.2f} ms")
     

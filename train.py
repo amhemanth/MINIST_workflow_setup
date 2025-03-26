@@ -60,10 +60,29 @@ class AugmentedMNIST(Dataset):
         
         return torch.tensor(distorted).unsqueeze(0).float()
 
+def setup_gpu():
+    """Configure system for optimal GPU performance"""
+    if torch.cuda.is_available():
+        # Set CUDA flags for better performance
+        torch.backends.cudnn.benchmark = True
+        torch.backends.cudnn.deterministic = False
+        torch.backends.cudnn.enabled = True
+        
+        # Print GPU info
+        device_name = torch.cuda.get_device_name(0)
+        print(f"Using GPU: {device_name}")
+        
+        # Optimize memory allocation
+        torch.cuda.empty_cache()
+        
+        return torch.device('cuda')
+    else:
+        print("GPU not available, using CPU")
+        return torch.device('cpu')
+
 def train():
-    # Set device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
+    # Set device with optimized settings
+    device = setup_gpu() if torch.cuda.is_available() else torch.device('cpu')
     
     # Load MNIST dataset with enhanced augmentation
     transform_train = transforms.Compose([
@@ -88,7 +107,13 @@ def train():
     base_train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform_train)
     # Wrap with custom augmentation
     train_dataset = AugmentedMNIST(base_train_dataset)
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=64, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, 
+        batch_size=64, 
+        shuffle=True,
+        pin_memory=True if torch.cuda.is_available() else False,
+        num_workers=4 if torch.cuda.is_available() else 0
+    )
     
     # Create a separate loader for evaluation
     eval_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform_eval)
@@ -118,7 +143,8 @@ def train():
         total = 0
         
         for batch_idx, (data, target) in enumerate(train_loader):
-            data, target = data.to(device), target.to(device)
+            data = data.to(device, non_blocking=True)
+            target = target.to(device, non_blocking=True)
             optimizer.zero_grad()
             output = model(data)
             loss = criterion(output, target)
