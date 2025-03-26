@@ -16,7 +16,8 @@ def test_model_architecture():
     
     # Test 2: Check number of parameters
     num_params = count_parameters(model)
-    assert num_params < 100000, f"Model has {num_params} parameters, should be less than 100000"
+    print(f"Model has {num_params} parameters")
+    assert num_params < 25000, f"Model has {num_params} parameters, should be less than 25000"
     
     # Test 3: Check output dimension
     assert output.shape[1] == 10, f"Model output dimension is {output.shape[1]}, should be 10"
@@ -24,7 +25,7 @@ def test_model_architecture():
 def test_model_training():
     # Test 4: Check training accuracy
     accuracy = train()
-    assert accuracy > 80, f"Model accuracy is {accuracy}%, should be above 80%"
+    assert accuracy > 95, f"Model accuracy is {accuracy}%, should be above 95%"
 
 if __name__ == "__main__":
     pytest.main([__file__]) 
