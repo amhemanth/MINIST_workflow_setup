@@ -11,86 +11,64 @@ def train():
     print(f"Using device: {device}")
     
     # Load MNIST dataset with enhanced augmentation
-    transform = transforms.Compose([
-        transforms.RandomRotation(15),  # Increased rotation
-        transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)),  # Added affine transforms
+    transform_train = transforms.Compose([
+        transforms.RandomRotation(20),
+        transforms.RandomAffine(degrees=0, translate=(0.15, 0.15), scale=(0.85, 1.15)),
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
     ])
     
-    train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform)
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=64, shuffle=True)  # Smaller batch size
+    # For evaluation, use only normalization
+    transform_eval = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,))
+    ])
+    
+    train_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform_train)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=64, shuffle=True)
+    
+    # Create a separate loader for evaluation
+    eval_dataset = datasets.MNIST('./data', train=True, download=True, transform=transform_eval)
+    eval_loader = torch.utils.data.DataLoader(eval_dataset, batch_size=128, shuffle=False)
     
     # Initialize model, loss, and optimizer
     model = MNISTModel().to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.002, weight_decay=1e-5)  # Increased learning rate, added weight decay
-    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01, steps_per_epoch=len(train_loader), epochs=1)  # Added scheduler
+    optimizer = optim.Adam(model.parameters(), lr=0.003, weight_decay=1e-4)
+    
+    # Calculate total steps for all mini-epochs
+    total_steps = len(train_loader) * 3  # 3 mini-epochs
+    scheduler = optim.lr_scheduler.OneCycleLR(
+        optimizer, 
+        max_lr=0.01, 
+        total_steps=total_steps
+    )
     
     # Print parameter count
     param_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Model has {param_count} parameters")
     
-    # Train for one epoch with multiple passes over difficult examples
+    # Train for multiple mini-epochs
     model.train()
-    correct = 0
-    total = 0
-    
-    # First pass over all data
-    for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.to(device)
-        optimizer.zero_grad()
-        output = model(data)
-        loss = criterion(output, target)
-        loss.backward()
-        optimizer.step()
-        scheduler.step()
+    for mini_epoch in range(3):  # Train for 3 mini-epochs
+        correct = 0
+        total = 0
         
-        _, predicted = output.max(1)
-        total += target.size(0)
-        correct += predicted.eq(target).sum().item()
-        
-        if batch_idx % 50 == 0:
-            print(f'Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}, Acc: {100.*correct/total:.2f}%')
-    
-    # Second pass focusing on difficult examples
-    difficult_data = []
-    difficult_targets = []
-    
-    model.eval()
-    with torch.no_grad():
-        for data, target in train_loader:
+        for batch_idx, (data, target) in enumerate(train_loader):
             data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
             output = model(data)
-            _, predicted = output.max(1)
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
             
-            # Find misclassified examples
-            incorrect_mask = ~predicted.eq(target)
-            if incorrect_mask.sum() > 0:
-                difficult_data.append(data[incorrect_mask])
-                difficult_targets.append(target[incorrect_mask])
-    
-    # If we found difficult examples, train on them
-    if difficult_data:
-        print("Training on difficult examples...")
-        model.train()
-        
-        # Combine all difficult examples
-        difficult_data = torch.cat(difficult_data)
-        difficult_targets = torch.cat(difficult_targets)
-        
-        # Create a new dataloader for difficult examples
-        difficult_dataset = torch.utils.data.TensorDataset(difficult_data, difficult_targets)
-        difficult_loader = torch.utils.data.DataLoader(difficult_dataset, batch_size=32, shuffle=True)
-        
-        # Train for 3 passes on difficult examples
-        for epoch in range(3):
-            for batch_idx, (data, target) in enumerate(difficult_loader):
-                optimizer.zero_grad()
-                output = model(data)
-                loss = criterion(output, target)
-                loss.backward()
-                optimizer.step()
+            _, predicted = output.max(1)
+            total += target.size(0)
+            correct += predicted.eq(target).sum().item()
+            
+            if batch_idx % 50 == 0:
+                print(f'Mini-epoch: {mini_epoch+1}/3, Batch: {batch_idx}/{len(train_loader)}, Loss: {loss.item():.4f}, Acc: {100.*correct/total:.2f}%')
     
     # Final evaluation
     model.eval()
@@ -98,7 +76,7 @@ def train():
     total = 0
     
     with torch.no_grad():
-        for data, target in train_loader:
+        for data, target in eval_loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
             _, predicted = output.max(1)
